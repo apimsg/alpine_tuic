@@ -30,14 +30,23 @@ bash <(curl -fsSL https://raw.githubusercontent.com/apimsg/alpine_tuic/main/tuic
 对于IPv6小鸡请选择IPv6链接
 
 📌 管理命令
-```bash
-service tuic start     # 启动服务
-service tuic stop      # 停止服务
-service tuic restart   # 重启服务
-service tuic status    # 查看状态
-cat /etc/tuic/config.json   # 查看配置文件
-tail -f /var/log/tuic.log   # 查看实时日志
-```
+# 🚀 启动服务（拉起守护脚本，它会自动启动 tuic）
+pkill -f tuic-guard.sh; nohup /usr/local/bin/tuic-guard.sh > /dev/null 2>&1 &
+
+# 🛑 停止服务（杀掉守护脚本，tuic 也会随之停止）
+pkill -f tuic-guard.sh
+
+# 🔄 重启服务（先杀后启，一步到位）
+pkill -f tuic-guard.sh; nohup /usr/local/bin/tuic-guard.sh > /dev/null 2>&1 &
+
+# 🔍 查看真实运行状态（检查进程是否存在）
+ps aux | grep tuic
+
+# ⚙️ 查看配置文件
+cat /etc/tuic/config.json
+
+# 📜 查看实时日志
+tail -f /var/log/tuic.log
 ❌ 卸载命令
 
 
