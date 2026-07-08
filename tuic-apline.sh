@@ -2,9 +2,10 @@
 set -e
 
 TUIC_BIN="/usr/local/bin/tuic"
+GUARD_BIN="/usr/local/bin/tuic-guard.sh"
 CERT_DIR="/etc/tuic"
 CONFIG_FILE="$CERT_DIR/config.json"
-SERVICE_FILE="/etc/init.d/tuic"
+# SERVICE_FILE="/etc/init.d/tuic" # 已移除 OpenRC 服务文件
 
 # ===== 管理菜单 =====
 if [ -x "$TUIC_BIN" ]; then
@@ -23,16 +24,19 @@ if [ -x "$TUIC_BIN" ]; then
       read -p "请输入新的端口号: " NEW_PORT
       [ -z "$NEW_PORT" ] && echo "❌ 端口不能为空" && exit 1
       sed -i "s/\"server\": \".*\"/\"server\": \"[::]:$NEW_PORT\"/" "$CONFIG_FILE"
-      rc-service tuic restart
+      pkill -f tuic-guard.sh && nohup $GUARD_BIN > /dev/null 2>&1 &
       echo "✅ 端口已修改为 $NEW_PORT 并已重启服务"
       exit 0
       ;;
     2)
       echo "正在卸载 TUIC..."
-      rc-service tuic stop || true
-      rc-update del tuic default || true
-      rm -f "$TUIC_BIN" "$SERVICE_FILE"
+      pkill -f tuic-guard.sh || true
+      # rc-service tuic stop || true # 已移除
+      # rc-update del tuic default || true # 已移除
+      rm -f "$TUIC_BIN" "$GUARD_BIN"
+      # rm -f "$SERVICE_FILE" # 已移除
       rm -rf "$CERT_DIR"
+      sed -i '/tuic-guard.sh/d' /etc/rc.local || true # 清理开机启动项
       echo "✅ TUIC 已卸载完成"
       exit 0
       ;;
@@ -141,24 +145,30 @@ cat > $CONFIG_FILE <<EOF
   "private_key": "$KEY_PATH",
   "alpn": ["h3"],
   "congestion_control": "$CC_ALGO"
-  
 }
 EOF
 
-# ===== OpenRC 服务 =====
-cat > $SERVICE_FILE <<'EOF'
-#!/sbin/openrc-run
-description="TUIC v5 Service"
-command="/usr/local/bin/tuic"
-command_args="--config /etc/tuic/config.json"
-command_background="yes"
-pidfile="/run/tuic.pid"
-depend() { need net; }
+# ===== 创建并配置 tuic-guard.sh 守护脚本 =====
+echo "正在配置守护脚本..."
+cat <<EOF > $GUARD_BIN
+#!/bin/bash
+while true; do
+    if ! pgrep -x "tuic" > /dev/null; then
+        $TUIC_BIN -c $CONFIG_FILE > /var/log/tuic.log 2>&1 &
+    fi
+    sleep 10
+done
 EOF
+chmod +x $GUARD_BIN
 
-chmod +x $SERVICE_FILE
-rc-update add tuic default
-rc-service tuic restart
+# 配置开机自启，防止重复添加
+if ! grep -q "tuic-guard.sh" /etc/rc.local; then
+    echo "nohup $GUARD_BIN > /dev/null 2>&1 &" >> /etc/rc.local
+fi
+chmod +x /etc/rc.local
+
+# 立即启动守护脚本
+nohup $GUARD_BIN > /dev/null 2>&1 &
 
 # ---------------- 输出链接 ----------------
 IPV4=$(curl -s ipv4.icanhazip.com || true)
@@ -229,5 +239,13 @@ proxies:
     reduce_rtt: true
 EOF
 
+# ===== 打印配置文件内容 =====
+echo "---------------------------------------"
 echo "✅ v2rayN 配置已生成: $V2RAYN_FILE"
+echo "---------------------------------------"
+cat "$V2RAYN_FILE"
+echo ""
+echo "---------------------------------------"
 echo "✅ Clash Meta 配置已生成: $CLASH_FILE"
+echo "---------------------------------------"
+cat "$CLASH_FILE"
