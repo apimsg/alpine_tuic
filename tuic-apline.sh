@@ -5,7 +5,6 @@ TUIC_BIN="/usr/local/bin/tuic"
 GUARD_BIN="/usr/local/bin/tuic-guard.sh"
 CERT_DIR="/etc/tuic"
 CONFIG_FILE="$CERT_DIR/config.json"
-# SERVICE_FILE="/etc/init.d/tuic" # 已移除 OpenRC 服务文件
 
 # ===== 管理菜单 =====
 if [ -x "$TUIC_BIN" ]; then
@@ -31,12 +30,9 @@ if [ -x "$TUIC_BIN" ]; then
     2)
       echo "正在卸载 TUIC..."
       pkill -f tuic-guard.sh || true
-      # rc-service tuic stop || true # 已移除
-      # rc-update del tuic default || true # 已移除
       rm -f "$TUIC_BIN" "$GUARD_BIN"
-      # rm -f "$SERVICE_FILE" # 已移除
       rm -rf "$CERT_DIR"
-      sed -i '/tuic-guard.sh/d' /etc/rc.local || true # 清理开机启动项
+      sed -i '/tuic-guard.sh/d' /etc/rc.local || true
       echo "✅ TUIC 已卸载完成"
       exit 0
       ;;
@@ -51,34 +47,41 @@ fi
 
 # ===== 安装流程 =====
 echo "---------------------------------------"
-echo " TUIC v5 Alpine Linux 安装脚本 "
+echo " TUIC v5 全系统通用安装脚本 "
 echo "---------------------------------------"
 
-apk add --no-cache wget curl openssl openrc lsof coreutils jq file >/dev/null
-apk add --no-cache aria2 >/dev/null || true
+# --- 智能检测包管理器 ---
+if command -v apk > /dev/null 2>&1; then
+    echo "检测到 Alpine Linux (apk)，正在安装依赖..."
+    apk add --no-cache wget curl openssl openrc lsof coreutils jq file >/dev/null
+    apk add --no-cache aria2 >/dev/null || true
+elif command -v dnf > /dev/null 2>&1; then
+    echo "检测到 dnf 包管理器，正在安装依赖..."
+    dnf install -y wget curl openssl lsof coreutils jq file aria2
+elif command -v yum > /dev/null 2>&1; then
+    echo "检测到 yum 包管理器，正在安装依赖..."
+    yum install -y wget curl openssl lsof coreutils jq file aria2
+elif command -v apt-get > /dev/null 2>&1; then
+    echo "检测到 Debian/Ubuntu (apt)，正在安装依赖..."
+    apt-get update >/dev/null
+    apt-get install -y wget curl openssl lsof coreutils jq file aria2
+else
+    echo "❌ 未找到支持的包管理器 (apk/yum/dnf/apt)。"
+    exit 1
+fi
+# --- 检测结束 ---
 
 # ===== 下载 TUIC 二进制 =====
-# 1. 获取最新版本号
 TAG=$(curl -s https://api.github.com/repos/tuic-protocol/tuic/releases/latest | jq -r .tag_name)
 [ -z "$TAG" ] || [ "$TAG" = "null" ] && TAG="tuic-server-1.0.0"
 VERSION=${TAG#tuic-server-}
 
-# 2. 自动检测 CPU 架构
 ARCH=$(uname -m)
 case "$ARCH" in
-    x86_64)
-        FILENAME="tuic-server-${VERSION}-x86_64-unknown-linux-musl"
-        ;;
-    aarch64)
-        FILENAME="tuic-server-${VERSION}-aarch64-unknown-linux-musl"
-        ;;
-    armv7l)
-        FILENAME="tuic-server-${VERSION}-armv7-unknown-linux-musleabihf"
-        ;;
-    *)
-        echo "❌ 不支持的 CPU 架构: $ARCH"
-        exit 1
-        ;;
+    x86_64) FILENAME="tuic-server-${VERSION}-x86_64-unknown-linux-musl" ;;
+    aarch64) FILENAME="tuic-server-${VERSION}-aarch64-unknown-linux-musl" ;;
+    armv7l) FILENAME="tuic-server-${VERSION}-armv7-unknown-linux-musleabihf" ;;
+    *) echo "❌ 不支持的 CPU 架构: $ARCH"; exit 1 ;;
 esac
 
 URLS="
@@ -124,7 +127,6 @@ PASS=$(openssl rand -base64 16)
 read -p "请输入 TUIC 端口 (默认随机): " PORT
 [ -z "$PORT" ] && PORT=$(shuf -i 20000-60000 -n 1)
 
-# ===== 拥塞算法选择 =====
 echo "请选择拥塞控制算法:"
 echo "1) bbr (推荐: 丢包多/跨境线路)"
 echo "2) cubic (推荐: 稳定小鸡/低丢包环境)"
