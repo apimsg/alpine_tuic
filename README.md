@@ -47,9 +47,9 @@ cat /etc/tuic/config.json
 
 # 📜 查看实时日志
 tail -f /var/log/tuic.log
+
 ❌ 卸载命令
-
-
+先停止服务（pkill -f tuic-guard.sh）再卸载
 重新输入一键命令可以修改端口，可以卸载tuic
 
 
