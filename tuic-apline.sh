@@ -195,6 +195,12 @@ CONFIG_FILE="$CONFIG_FILE"
 TUIC_PID_FILE="$TUIC_PID_FILE"
 LOG_FILE="/tmp/tuic.log"
 
+# 设置日志文件最大限制为 5MB，防止撑爆容器内存
+MAX_LOG_SIZE=5242880 
+
+# 忽略 SIGHUP 信号，防止父终端退出时杀死守护脚本
+trap '' HUP
+
 # 防止多开
 if [ -f "\$PID_FILE" ]; then
     OLD_PID=\$(cat "\$PID_FILE")
@@ -207,7 +213,7 @@ if [ -f "\$PID_FILE" ]; then
 fi
 echo \$\$ > "\$PID_FILE"
 
-# 信号处理：捕获退出信号，清理子进程和锁文件
+# 信号处理：捕获 INT/TERM 信号，优雅关闭 TUIC 并清理锁文件
 cleanup() {
     echo "收到停止信号，正在关闭 TUIC..."
     if [ -f "\$TUIC_PID_FILE" ]; then
@@ -220,10 +226,20 @@ cleanup() {
 trap cleanup INT TERM
 
 while true; do
+    # 1. 检查 TUIC 主进程，不在则拉起
     if ! pgrep -x "tuic" > /dev/null; then
         \$TUIC_BIN -c \$CONFIG_FILE >> \$LOG_FILE 2>&1 &
         echo \$! > \$TUIC_PID_FILE
     fi
+    
+    # 2. 检查日志文件大小，超过 5MB 则清空
+    if [ -f "\$LOG_FILE" ]; then
+        CURRENT_SIZE=\$(stat -c%s "\$LOG_FILE" 2>/dev/null || echo 0)
+        if [ "\$CURRENT_SIZE" -gt "\$MAX_LOG_SIZE" ]; then
+            echo "[GUARD] 日志文件超过 5MB，已自动清理。" > "\$LOG_FILE"
+        fi
+    fi
+    
     sleep 10
 done
 EOF
