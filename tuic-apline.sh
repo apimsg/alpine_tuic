@@ -14,7 +14,7 @@ cleanup() {
     local exit_code=$?
     # 只有当退出码不为 0 时（即发生错误或收到中断信号），才提示并清理
     if [ $exit_code -ne 0 ]; then
-        echo -e "\n⚠️ 脚本被中断或发生错误 (退出码: $exit_code)，正在清理临时文件..."
+        echo -e "\n️ 脚本被中断或发生错误 (退出码: $exit_code)，正在清理临时文件..."
         rm -f /tmp/tuic_temp*
     fi
 }
@@ -232,8 +232,18 @@ chmod +x "$GUARD_BIN"
 # ===== Docker 环境检测与自启配置 =====
 if [ -f /.dockerenv ] || grep -qsE '(docker|lxc|kubepods)' /proc/1/cgroup 2>/dev/null; then
     echo "️ 检测到 Docker/容器环境，跳过 rc.local 配置。"
-    echo " 请在宿主机的 docker run 命令中添加:"
-    echo "   --restart=always /bin/sh -c 'nohup $GUARD_BIN > /dev/null 2>&1 & exec /bin/sh'"
+    # 生成 Docker 专用的启动脚本
+    cat <<EOF > /start.sh
+#!/bin/sh
+chmod +x $GUARD_BIN
+nohup $GUARD_BIN > /dev/null 2>&1 &
+echo " TUIC 守护进程已在后台启动..."
+exec tail -f /dev/null
+EOF
+    chmod +x /start.sh
+    echo " 已生成 Docker 启动脚本: /start.sh"
+    echo " 请在宿主机使用以下命令启动/重启容器："
+    echo " docker run -d --name tuic-container --restart=always --entrypoint /bin/sh <你的镜像名> /start.sh"
 else
     # 物理机/虚拟机配置开机自启
     if [ -f /etc/rc.local ]; then
@@ -246,9 +256,24 @@ else
     fi
 fi
 
-# 立即启动守护脚本
-nohup "$GUARD_BIN" > /dev/null 2>&1 &
-echo "$!" > "$GUARD_PID"
+# ===== 立即启动守护脚本 =====
+echo "正在启动 TUIC 守护进程..."
+
+# 使用 setsid 让守护进程完全脱离当前终端和父进程组，防止安装脚本退出时将其误杀
+# 同时重定向标准输入(/dev/null)，防止后台进程因读取终端而挂起
+if setsid "$GUARD_BIN" </dev/null >/dev/null 2>&1 & then
+    echo "$!" > "$GUARD_PID"
+    
+    # 等待 1 秒让进程启动，然后检查状态
+    sleep 1
+    if pgrep -x "tuic" > /dev/null; then
+        echo " TUIC 服务端已成功启动！"
+    else
+        echo "️ TUIC 启动似乎遇到问题，请检查配置或日志。"
+    fi
+else
+    echo " 守护进程启动失败！"
+fi
 
 # ---------------- 输出链接 ----------------
 IPV4=$(curl -s --max-time 10 ipv4.icanhazip.com || true)
