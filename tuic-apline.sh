@@ -11,9 +11,12 @@ TUIC_PID_FILE="/var/run/tuic-server.pid"
 
 # ===== 清理与异常退出处理 =====
 cleanup() {
-    echo -e "\n️ 脚本被中断或发生错误，正在清理临时文件..."
-    rm -f /tmp/tuic_temp*
-    # 注意：这里不杀进程，防止误杀正在运行的服务
+    local exit_code=$?
+    # 只有当退出码不为 0 时（即发生错误或收到中断信号），才提示并清理
+    if [ $exit_code -ne 0 ]; then
+        echo -e "\n⚠️ 脚本被中断或发生错误 (退出码: $exit_code)，正在清理临时文件..."
+        rm -f /tmp/tuic_temp*
+    fi
 }
 trap cleanup EXIT INT TERM
 
